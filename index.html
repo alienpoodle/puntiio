@@ -5,91 +5,28 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Puntiio | Loyalty Wallet</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <!-- Updated JsBarcode CDN as requested -->
+    <!-- JsBarcode CDN for generating high-quality barcodes -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.3/JsBarcode.all.min.js"></script>
-    <script type="module">
-        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, collection, addDoc, onSnapshot, query, doc, deleteDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
-
-        // --- Configuration & Initialization ---
-        const firebaseConfig = JSON.parse(__firebase_config);
-        const app = initializeApp(firebaseConfig);
-        const auth = getAuth(app);
-        const db = getFirestore(app);
-        const appId = typeof __app_id !== 'undefined' ? __app_id : 'loyalty-card-wallet';
-
+    <script>
         // State Management
-        let currentUser = null;
         let cards = [];
         let selectedCard = null;
 
-        // UI Selectors
-        const mainView = document.getElementById('main-view');
-        const addCardView = document.getElementById('add-card-view');
-        const cardDetailsView = document.getElementById('card-details-view');
-        const cardList = document.getElementById('card-list');
-        const emptyState = document.getElementById('empty-state');
+        // UI Selectors (Resolved on load)
+        let mainView, addCardView, cardDetailsView, cardList, emptyState;
 
-        // --- Auth Logic (Rule 3) ---
-        async function initApp() {
-            try {
-                if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-                    await signInWithCustomToken(auth, __initial_auth_token);
-                } else {
-                    await signInAnonymously(auth);
-                }
-            } catch (err) {
-                console.error("Auth failed", err);
-            }
-        }
+        // Initialize App on DOM Load
+        window.addEventListener('DOMContentLoaded', () => {
+            mainView = document.getElementById('main-view');
+            addCardView = document.getElementById('add-card-view');
+            cardDetailsView = document.getElementById('card-details-view');
+            cardList = document.getElementById('card-list');
+            emptyState = document.getElementById('empty-state');
 
-        onAuthStateChanged(auth, (user) => {
-            currentUser = user;
-            if (user) {
-                setupDataListener();
-            }
+            loadCards();
         });
 
-        // --- Firestore Logic (Rule 1 & 2) ---
-        function setupDataListener() {
-            if (!currentUser) return;
-            const q = collection(db, 'artifacts', appId, 'users', currentUser.uid, 'cards');
-            
-            onSnapshot(q, (snapshot) => {
-                cards = snapshot.docs
-                    .map(doc => ({ id: doc.id, ...doc.data() }))
-                    .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
-                renderCards();
-            }, (error) => {
-                console.error("Snapshot error:", error);
-            });
-        }
-
-        async function saveCard(cardData) {
-            if (!currentUser) return;
-            try {
-                await addDoc(collection(db, 'artifacts', appId, 'users', currentUser.uid, 'cards'), {
-                    ...cardData,
-                    createdAt: Date.now()
-                });
-                showView('main');
-            } catch (err) {
-                console.error("Save error", err);
-            }
-        }
-
-        async function removeCard(id) {
-            if (!currentUser) return;
-            try {
-                await deleteDoc(doc(db, 'artifacts', appId, 'users', currentUser.uid, 'cards', id));
-                showView('main');
-            } catch (err) {
-                console.error("Delete error", err);
-            }
-        }
-
-        // --- UI Logic ---
+        // --- Navigation Logic ---
         window.showView = (viewName, data = null) => {
             [mainView, addCardView, cardDetailsView].forEach(el => el.classList.add('hidden'));
             
@@ -103,6 +40,34 @@
             }
         };
 
+        // --- Local Storage Data Management ---
+        function loadCards() {
+            const localData = localStorage.getItem('cardly_cards');
+            cards = localData ? JSON.parse(localData) : [];
+            cards.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+            renderCards();
+        }
+
+        function saveCard(cardData) {
+            const newCard = {
+                ...cardData,
+                id: 'card_' + Date.now(),
+                createdAt: Date.now()
+            };
+            cards.unshift(newCard);
+            localStorage.setItem('cardly_cards', JSON.stringify(cards));
+            renderCards();
+            showView('main');
+        }
+
+        function removeCard(id) {
+            cards = cards.filter(c => c.id !== id);
+            localStorage.setItem('cardly_cards', JSON.stringify(cards));
+            renderCards();
+            showView('main');
+        }
+
+        // --- UI Rendering ---
         function renderCards() {
             cardList.innerHTML = '';
             if (cards.length === 0) {
@@ -145,22 +110,19 @@
             
             const generate = () => {
                 try {
-                    // Check if JsBarcode is loaded in global scope
                     const JsBarcodeFunc = window.JsBarcode;
                     if (typeof JsBarcodeFunc === 'function') {
-                        // INCREASED BARCODE SIZE: adjusted width, height, and display
                         JsBarcodeFunc(barcodeEl, selectedCard.cardNumber, {
                             format: "CODE128",
                             lineColor: "#000",
-                            width: 3,        // Increased from 2 for thicker bars
-                            height: 150,      // Increased from 100 for more vertical surface area
+                            width: 3,
+                            height: 150,
                             displayValue: false,
                             background: "#ffffff",
-                            margin: 20        // More white space around to help scanner focus
+                            margin: 20
                         });
-                        console.log("Barcode generated successfully with optimized sizing");
+                        console.log("Barcode generated successfully");
                     } else {
-                        // Retry loop if library is still loading
                         setTimeout(generate, 100);
                     }
                 } catch (e) {
@@ -177,7 +139,7 @@
         }
 
         // Form Handling
-        document.getElementById('card-form').onsubmit = (e) => {
+        window.handleFormSubmit = (e) => {
             e.preventDefault();
             const formData = new FormData(e.target);
             const data = {
@@ -195,11 +157,11 @@
             modal.className = "fixed inset-0 bg-black/50 flex items-center justify-center p-6 z-[100]";
             modal.innerHTML = `
                 <div class="bg-white rounded-2xl p-6 w-full max-w-xs text-center">
-                    <h3 class="font-bold text-lg mb-2">Delete Card?</h3>
-                    <p class="text-slate-500 mb-6">This action cannot be undone.</p>
+                    <h3 class="font-bold text-lg mb-2 text-slate-800">Delete Card?</h3>
+                    <p class="text-slate-500 mb-6 text-sm">This action cannot be undone.</p>
                     <div class="flex gap-3">
-                        <button id="cancel-del" class="flex-1 p-3 rounded-xl bg-slate-100 font-semibold">Cancel</button>
-                        <button id="confirm-del" class="flex-1 p-3 rounded-xl bg-red-500 text-white font-semibold">Delete</button>
+                        <button id="cancel-del" class="flex-1 p-3 rounded-xl bg-slate-100 font-semibold text-slate-600 active:scale-95 transition-transform">Cancel</button>
+                        <button id="confirm-del" class="flex-1 p-3 rounded-xl bg-red-500 text-white font-semibold active:scale-95 transition-transform">Delete</button>
                     </div>
                 </div>
             `;
@@ -210,14 +172,11 @@
                 modal.remove();
             };
         };
-
-        initApp();
     </script>
     <style>
         body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
         .safe-area-bottom { padding-bottom: env(safe-area-inset-bottom); }
         
-        /* Ensure the barcode SVG scales responsibly but remains large */
         #barcode {
             width: 100%;
             height: auto;
@@ -237,7 +196,7 @@
     <div id="main-view" class="max-w-md mx-auto min-h-screen flex flex-col">
         <header class="p-6 flex justify-between items-center">
             <h1 class="text-3xl font-extrabold tracking-tight">My Wallet</h1>
-            <button onclick="showView('add')" class="bg-indigo-600 text-white p-2 rounded-full shadow-lg active:scale-90 transition-transform">
+            <button onclick="showView('add')" class="bg-indigo-600 text-white p-2.5 rounded-full shadow-lg active:scale-90 transition-transform">
                 <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path></svg>
             </button>
         </header>
@@ -246,7 +205,7 @@
             <div id="empty-state" class="hidden flex flex-col items-center justify-center h-64 text-slate-400">
                 <svg class="w-16 h-16 mb-4 opacity-20" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z"></path></svg>
                 <p>No cards added yet</p>
-                <button onclick="showView('add')" class="mt-4 text-indigo-600 font-medium">Add your first card</button>
+                <button onclick="showView('add')" class="mt-4 text-indigo-600 font-semibold text-sm">Add your first card</button>
             </div>
             <div id="card-list"></div>
         </main>
@@ -262,7 +221,7 @@
                 </button>
             </div>
 
-            <form id="card-form" class="space-y-6">
+            <form id="card-form" onsubmit="handleFormSubmit(event)" class="space-y-6">
                 <div>
                     <label class="block text-sm font-semibold text-slate-600 mb-2">Store Name</label>
                     <input name="storeName" type="text" required placeholder="e.g. Target, Costco, Starbucks" class="w-full p-4 rounded-xl border border-slate-200 focus:ring-2 focus:ring-indigo-500 outline-none transition-all">
@@ -299,10 +258,10 @@
     <div id="card-details-view" class="hidden fixed inset-0 bg-slate-900 z-[60] flex flex-col">
         <div id="details-header" class="h-1/3 flex flex-col p-8 transition-colors duration-500">
             <div class="flex justify-between items-start">
-                <button onclick="showView('main')" class="bg-white/20 p-2 rounded-full text-white backdrop-blur-sm">
+                <button onclick="showView('main')" class="bg-white/20 p-2 rounded-full text-white backdrop-blur-sm active:scale-90 transition-transform">
                     <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"></path></svg>
                 </button>
-                <button onclick="handleDelete()" class="text-white/60 hover:text-white">
+                <button onclick="handleDelete()" class="text-white/60 hover:text-white active:scale-90 transition-transform">
                     <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
                 </button>
             </div>
@@ -315,7 +274,6 @@
         <div class="flex-1 bg-white rounded-t-[40px] -mt-10 p-8 flex flex-col items-center justify-center">
             <p class="text-slate-400 text-sm mb-6 uppercase tracking-[0.2em]">Hold near scanner</p>
             
-            <!-- Updated container for larger barcode -->
             <div class="bg-white p-2 rounded-2xl shadow-2xl border border-slate-100 flex justify-center items-center overflow-hidden barcode-container">
                 <svg id="barcode"></svg>
             </div>
